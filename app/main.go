@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"slices"
@@ -30,10 +31,44 @@ func main() {
 			fmt.Println(err)
 		}
 
-		fields := strings.Fields(input)
+		// fields := strings.Fields(input)
+		// cmd := fields[0]
+		// args := fields[1:]
+		// fmt.Println(args)
 
-		cmd := fields[0]
-		args := fields[1:]
+		args := make([]string, 0)
+		var tmp bytes.Buffer
+		inQuotes := false
+
+		input = strings.TrimSpace(input)
+		for i, c := range input {
+			switch c {
+			case '"':
+				inQuotes = !inQuotes
+			case ' ':
+				if !inQuotes {
+					if tmp.Len() > 0 {
+						args = append(args, tmp.String())
+						tmp.Reset()
+					}
+				} else {
+					tmp.WriteRune(c)
+				}
+			default:
+				tmp.WriteRune(c)
+			}
+
+			if i == len(input)-1 && tmp.Len() > 0 {
+				args = append(args, tmp.String())
+			}
+		}
+
+		// fmt.Println(args)
+
+		cmd := args[0]
+		args = args[1:]
+
+		// fmt.Println(args)
 
 		switch cmd {
 		case EXIT:
@@ -57,36 +92,54 @@ func main() {
 					continue
 				}
 
-				found := false
-				rawPath := os.Getenv("PATH")
-				paths := strings.Split(rawPath, ":")
-				for _, p := range paths {
-					// fmt.Println("debug: path: ", p)
-					f, err := handlePath(arg, p)
-					if err != nil {
-						fmt.Printf("failed to handle path: %s", err)
-						continue
-					}
-
-					if f {
-						fmt.Printf("%s is %s\n", arg, path.Join(p, arg))
-						found = true
-						break
-					}
-				}
-
+				p, found := searchInPATH(arg)
 				if !found {
 					fmt.Printf("%s: not found\n", arg)
+				} else {
+					fmt.Printf("%s is %s\n", arg, p)
 				}
 
 				continue
 			}
-			continue
 
 		default:
-			fmt.Printf("%s: command not found\n", cmd)
+			p, found := searchInPATH(cmd)
+			if !found {
+				fmt.Printf("%s: command not found\n", cmd)
+				continue
+			}
+
+			// fmt.Println("debug: ", cmd, args)
+			c := exec.Command(path.Base(p), args...)
+			// fmt.Printf("debug: %+v\n", c.Args)
+			c.Stdin = os.Stdin
+			c.Stdout = os.Stdout
+			c.Stderr = os.Stderr
+			if err := c.Run(); err != nil {
+				fmt.Println(err)
+				continue
+			}
 		}
 	}
+}
+
+func searchInPATH(target string) (string, bool) {
+	rawPath := os.Getenv("PATH")
+	paths := strings.Split(rawPath, ":")
+	for _, p := range paths {
+		// fmt.Println("debug: path: ", p)
+		found, err := handlePath(target, p)
+		if err != nil {
+			fmt.Printf("failed to handle path: %s", err)
+			continue
+		}
+
+		if found {
+			return path.Join(p, target), true
+		}
+	}
+
+	return "", false
 }
 
 func handlePath(target string, path string) (bool, error) {
