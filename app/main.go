@@ -6,16 +6,25 @@ import (
 	"os"
 )
 
+const (
+	EXIT = "exit"
+)
+
 func main() {
 	for {
 		fmt.Print("$ ")
 
 		r := bufio.NewReader(os.Stdin)
-		cmd, err := r.ReadString('\n')
+		rawCmd, err := r.ReadString('\n')
+		cmd := rawCmd[:len(rawCmd)-1]
 		if err != nil {
 			fmt.Println(err)
 		}
 
-		fmt.Printf("%s: command not found\n", cmd[:len(cmd)-1])
+		if cmd == EXIT {
+			return
+		}
+
+		fmt.Printf("%s: command not found\n", cmd)
 	}
 }
