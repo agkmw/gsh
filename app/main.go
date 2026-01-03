@@ -17,9 +17,10 @@ const (
 	EXIT = "exit"
 	ECHO = "echo"
 	TYPE = "type"
+	PWD  = "pwd"
 )
 
-var builtins = []string{EXIT, ECHO, TYPE}
+var builtins = []string{EXIT, ECHO, TYPE, PWD}
 
 func main() {
 	for {
@@ -101,6 +102,14 @@ func main() {
 
 				continue
 			}
+
+		case PWD:
+			dir, err := os.Getwd()
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+			fmt.Println(dir)
 
 		default:
 			p, found := searchInPATH(cmd)
