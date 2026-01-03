@@ -5,13 +5,17 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 )
 
 const (
 	EXIT = "exit"
 	ECHO = "echo"
+	TYPE = "type"
 )
+
+var builtins = []string{EXIT, ECHO, TYPE}
 
 func main() {
 	for {
@@ -41,6 +45,16 @@ func main() {
 				}
 			}
 			fmt.Println(buf.String())
+			continue
+
+		case TYPE:
+			for _, arg := range args {
+				if !slices.Contains(builtins, arg) {
+					fmt.Printf("%s: not found\n", arg)
+				} else {
+					fmt.Printf("%s is a shell builtin\n", arg)
+				}
+			}
 			continue
 
 		default:
