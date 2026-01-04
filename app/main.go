@@ -44,18 +44,30 @@ func main() {
 		inSingleQuotes := false
 
 		input = strings.TrimSpace(input)
-		// fmt.Println(input)
-		for i, c := range input {
+		// fmt.Println("input: ", input)
+		for i := 0; i < len(input); i++ {
+			c := input[i]
 			switch c {
+			case '\\':
+				if !inSingleQuotes && !inDoubleQuotes {
+					// fmt.Println("reached here")
+					i++
+					// fmt.Println("reached here: ", input[i])
+					tmp.WriteByte(input[i])
+					continue
+				} else {
+					tmp.WriteByte(c)
+					continue
+				}
 			case '"':
 				if inSingleQuotes {
-					tmp.WriteRune(c)
+					tmp.WriteByte(c)
 					continue
 				}
 				inDoubleQuotes = !inDoubleQuotes
 			case '\'':
 				if inDoubleQuotes {
-					tmp.WriteRune(c)
+					tmp.WriteByte(c)
 					continue
 				}
 				inSingleQuotes = !inSingleQuotes
@@ -66,21 +78,37 @@ func main() {
 						tmp.Reset()
 					}
 				} else {
-					tmp.WriteRune(c)
+					tmp.WriteByte(c)
 				}
 			default:
-				tmp.WriteRune(c)
+				tmp.WriteByte(c)
 			}
 
 			if i == len(input)-1 && tmp.Len() > 0 {
+				// fmt.Println("here as well")
 				args = append(args, tmp.String())
+				tmp.Reset()
 			}
+		}
+
+		if tmp.Len() > 0 {
+			// fmt.Println("here as well")
+			args = append(args, tmp.String())
+			tmp.Reset()
+		}
+
+		if len(args) < 1 {
+			continue
 		}
 
 		// fmt.Println(args)
 
 		cmd := args[0]
-		args = args[1:]
+		if len(args) >= 2 {
+			args = args[1:]
+		} else {
+			args = []string{}
+		}
 
 		// fmt.Println(args)
 
@@ -145,6 +173,7 @@ func main() {
 			}
 
 		default:
+			// fmt.Println("hit here")
 			p, found := searchInPATH(cmd)
 			if !found {
 				fmt.Printf("%s: command not found\n", cmd)
@@ -168,16 +197,26 @@ func main() {
 func searchInPATH(target string) (string, bool) {
 	rawPath := os.Getenv("PATH")
 	paths := strings.Split(rawPath, ":")
+	// fmt.Println("paths: ", paths)
 	for _, p := range paths {
 		// fmt.Println("debug: path: ", p)
-		found, err := handlePath(target, p)
+		// found, err := handlePath(target, p)
+		// if err != nil {
+		// 	fmt.Printf("failed to handle path: %s", err)
+		// 	continue
+		// }
+		//
+		// if found {
+		// 	return path.Join(p, target), true
+		// }
+		targetPath := filepath.Join(p, target)
+		info, err := os.Stat(targetPath)
 		if err != nil {
-			fmt.Printf("failed to handle path: %s", err)
+			// path error; continue
 			continue
 		}
-
-		if found {
-			return path.Join(p, target), true
+		if info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+			return targetPath, true
 		}
 	}
 
