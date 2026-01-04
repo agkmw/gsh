@@ -118,6 +118,9 @@ func main() {
 				continue
 			}
 			dest := args[0]
+			if dest == "~" {
+				dest = os.Getenv("HOME")
+			}
 			err := os.Chdir(dest)
 			if err != nil {
 				var pe *os.PathError
