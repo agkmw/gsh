@@ -33,32 +33,34 @@ func main() {
 			fmt.Println(err)
 		}
 
-		// fields := strings.Fields(input)
-		// cmd := fields[0]
-		// args := fields[1:]
-		// fmt.Println(args)
-
 		args := make([]string, 0)
 		var tmp bytes.Buffer
 		inDoubleQuotes := false
 		inSingleQuotes := false
 
 		input = strings.TrimSpace(input)
-		// fmt.Println("input: ", input)
 		for i := 0; i < len(input); i++ {
 			c := input[i]
 			switch c {
 			case '\\':
 				if !inSingleQuotes && !inDoubleQuotes {
-					// fmt.Println("reached here")
 					i++
-					// fmt.Println("reached here: ", input[i])
 					tmp.WriteByte(input[i])
-					continue
+				} else if inDoubleQuotes {
+					// newline is not escaped as of right now
+					specialChars := []byte{'"', '\\', '$', '`', 'n'}
+					if slices.Contains(specialChars, input[i+1]) {
+						i++
+						if input[i] == 'n' {
+							tmp.WriteByte('\n')
+							continue
+						}
+					}
+					tmp.WriteByte(input[i])
 				} else {
 					tmp.WriteByte(c)
-					continue
 				}
+				continue
 			case '"':
 				if inSingleQuotes {
 					tmp.WriteByte(c)
@@ -85,14 +87,12 @@ func main() {
 			}
 
 			if i == len(input)-1 && tmp.Len() > 0 {
-				// fmt.Println("here as well")
 				args = append(args, tmp.String())
 				tmp.Reset()
 			}
 		}
 
 		if tmp.Len() > 0 {
-			// fmt.Println("here as well")
 			args = append(args, tmp.String())
 			tmp.Reset()
 		}
@@ -102,14 +102,12 @@ func main() {
 		}
 
 		// fmt.Println(args)
-
 		cmd := args[0]
 		if len(args) >= 2 {
 			args = args[1:]
 		} else {
 			args = []string{}
 		}
-
 		// fmt.Println(args)
 
 		switch cmd {
@@ -197,7 +195,6 @@ func main() {
 func searchInPATH(target string) (string, bool) {
 	rawPath := os.Getenv("PATH")
 	paths := strings.Split(rawPath, ":")
-	// fmt.Println("paths: ", paths)
 	for _, p := range paths {
 		// fmt.Println("debug: path: ", p)
 		// found, err := handlePath(target, p)
@@ -212,7 +209,6 @@ func searchInPATH(target string) (string, bool) {
 		targetPath := filepath.Join(p, target)
 		info, err := os.Stat(targetPath)
 		if err != nil {
-			// path error; continue
 			continue
 		}
 		if info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
@@ -264,13 +260,17 @@ func handlePath(target string, path string) (bool, error) {
 			continue
 		}
 
-		// fmt.Printf("ENTRY: %s | PERM: %s\n", entry.Name(), perm)
-
 		if target == entry.Name() {
-			// fmt.Printf("found %s\n", target)
 			return true, nil
 		}
 	}
 
 	return false, nil
 }
+
+// if c is 1 && not in quotes then
+// 	peek next char
+//	if next char is > then
+//		redirect stdout
+// if c is > && not in quotes then
+// 	redirect stdout
