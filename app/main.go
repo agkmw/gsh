@@ -40,15 +40,27 @@ func main() {
 
 		args := make([]string, 0)
 		var tmp bytes.Buffer
-		inQuotes := false
+		inDoubleQuotes := false
+		inSingleQuotes := false
 
 		input = strings.TrimSpace(input)
+		// fmt.Println(input)
 		for i, c := range input {
 			switch c {
 			case '"':
-				inQuotes = !inQuotes
+				if inSingleQuotes {
+					tmp.WriteRune(c)
+					continue
+				}
+				inDoubleQuotes = !inDoubleQuotes
+			case '\'':
+				if inDoubleQuotes {
+					tmp.WriteRune(c)
+					continue
+				}
+				inSingleQuotes = !inSingleQuotes
 			case ' ':
-				if !inQuotes {
+				if !inSingleQuotes && !inDoubleQuotes {
 					if tmp.Len() > 0 {
 						args = append(args, tmp.String())
 						tmp.Reset()
