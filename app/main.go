@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -48,13 +49,14 @@ func main() {
 					tmp.WriteByte(input[i])
 				} else if inDoubleQuotes {
 					// newline is not escaped as of right now
-					specialChars := []byte{'"', '\\', '$', '`', 'n'}
+					// specialChars := []byte{'"', '\\', '$', '`', 'n'}
+					specialChars := []byte{'"', '\\', '$', '`'}
 					if slices.Contains(specialChars, input[i+1]) {
 						i++
-						if input[i] == 'n' {
-							tmp.WriteByte('\n')
-							continue
-						}
+						// if input[i] == 'n' {
+						// 	tmp.WriteByte('\n')
+						// 	continue
+						// }
 					}
 					tmp.WriteByte(input[i])
 				} else {
@@ -82,6 +84,21 @@ func main() {
 				} else {
 					tmp.WriteByte(c)
 				}
+			case '1':
+				if input[i-1] != ' ' {
+					tmp.WriteByte(c)
+					continue
+				}
+				if !inDoubleQuotes && !inSingleQuotes {
+					if input[i+1] == '>' {
+						i++
+						tmp.WriteByte('>')
+					} else {
+						tmp.WriteByte(c)
+					}
+					continue
+				}
+
 			default:
 				tmp.WriteByte(c)
 			}
@@ -110,6 +127,48 @@ func main() {
 		}
 		// fmt.Println(args)
 
+		var f *os.File
+		defer func() {
+			if f != nil {
+				if err := f.Close(); err != nil {
+					fmt.Printf("failed to close %s\n", f.Name())
+				}
+			}
+		}()
+		redirecting := false
+		if slices.Contains(args, ">") {
+			redirecting = true
+			roi := 0
+			for i := 0; i < len(args); i++ {
+				if args[i] == ">" {
+					// we need to make the parent dir if it doesn't exist
+					destFile := args[i+1]
+					err := os.MkdirAll(filepath.Dir(destFile), 0o750)
+					if err != nil {
+						fmt.Println("failed to create directory: ", err)
+					}
+					f, err = os.OpenFile(destFile, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0o644)
+					roi = i
+					if err != nil {
+						var pe *os.PathError
+						if errors.As(err, &pe) {
+							fmt.Printf("failed to open or create file: %s\n", pe.Path)
+							continue
+						}
+					}
+					break
+				}
+			}
+
+			args = args[:roi]
+		}
+
+		var out io.Writer
+		out = os.Stdout
+		if redirecting {
+			out = f
+		}
+
 		switch cmd {
 		case EXIT:
 			return
@@ -122,21 +181,21 @@ func main() {
 					buf.WriteString(" ")
 				}
 			}
-			fmt.Println(buf.String())
+			fmt.Fprintln(out, buf.String())
 			continue
 
 		case TYPE:
 			for _, arg := range args {
 				if slices.Contains(builtins, arg) {
-					fmt.Printf("%s is a shell builtin\n", arg)
+					fmt.Fprintf(out, "%s is a shell builtin\n", arg)
 					continue
 				}
 
 				p, found := searchInPATH(arg)
 				if !found {
-					fmt.Printf("%s: not found\n", arg)
+					fmt.Fprintf(out, "%s: not found\n", arg)
 				} else {
-					fmt.Printf("%s is %s\n", arg, p)
+					fmt.Fprintf(out, "%s is %s\n", arg, p)
 				}
 
 				continue
@@ -152,7 +211,7 @@ func main() {
 
 		case CD:
 			if len(args) > 1 {
-				fmt.Println("cd: can't accept more than one argument")
+				fmt.Fprintln(out, "cd: can't accept more than one argument")
 				continue
 			}
 			dest := args[0]
@@ -182,10 +241,10 @@ func main() {
 			c := exec.Command(path.Base(p), args...)
 			// fmt.Printf("debug: %+v\n", c.Args)
 			c.Stdin = os.Stdin
-			c.Stdout = os.Stdout
+			c.Stdout = out
 			c.Stderr = os.Stderr
 			if err := c.Run(); err != nil {
-				fmt.Println(err)
+				// fmt.Println(err)
 				continue
 			}
 		}
@@ -199,7 +258,7 @@ func searchInPATH(target string) (string, bool) {
 		// fmt.Println("debug: path: ", p)
 		// found, err := handlePath(target, p)
 		// if err != nil {
-		// 	fmt.Printf("failed to handle path: %s", err)
+		// 	fmt.Printf("failed to handle path: %s", err))
 		// 	continue
 		// }
 		//
@@ -219,7 +278,7 @@ func searchInPATH(target string) (string, bool) {
 	return "", false
 }
 
-func handlePath(target string, path string) (bool, error) {
+func handlePath(outBuf *bytes.Buffer, target string, path string) (bool, error) {
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -236,7 +295,7 @@ func handlePath(target string, path string) (bool, error) {
 				continue
 			}
 
-			found, err := handlePath(target, absPath)
+			found, err := handlePath(outBuf, target, absPath)
 			if err != nil {
 				fmt.Printf("failed to handle path: %s", err)
 				continue
@@ -269,8 +328,11 @@ func handlePath(target string, path string) (bool, error) {
 }
 
 // if c is 1 && not in quotes then
-// 	peek next char
+//
+//	peek next char
 //	if next char is > then
 //		redirect stdout
+//
 // if c is > && not in quotes then
-// 	redirect stdout
+//
+//	redirect stdout
