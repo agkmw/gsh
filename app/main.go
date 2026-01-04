@@ -18,6 +18,7 @@ const (
 	ECHO = "echo"
 	TYPE = "type"
 	PWD  = "pwd"
+	CD   = "cd"
 )
 
 var builtins = []string{EXIT, ECHO, TYPE, PWD}
@@ -110,6 +111,23 @@ func main() {
 				continue
 			}
 			fmt.Println(dir)
+
+		case CD:
+			if len(args) > 1 {
+				fmt.Println("cd: can't accept more than one argument")
+				continue
+			}
+			dest := args[0]
+			err := os.Chdir(dest)
+			if err != nil {
+				var pe *os.PathError
+				if errors.As(err, &pe) {
+					fmt.Printf("cd: %s: No such file or directory\n", pe.Path)
+					continue
+				}
+				fmt.Println("cd: ", err)
+				continue
+			}
 
 		default:
 			p, found := searchInPATH(cmd)
