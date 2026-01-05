@@ -43,6 +43,8 @@ func main() {
 		cmd := args[0]
 		if len(args) >= 2 {
 			args = args[1:]
+		} else {
+			args = []string{}
 		}
 
 		outWriter, errWriter, args, err := prepareWriters(args)
@@ -66,7 +68,7 @@ func main() {
 			external(outWriter, errWriter, cmd, args)
 		}
 
-		closeWriters(outWriter, errWriter)
+		closeOrResetWriters(outWriter, errWriter)
 	}
 }
 
@@ -201,19 +203,26 @@ func external(outWriter, errWriter io.Writer, cmd string, args []string) {
 	}
 
 	c := exec.Command(path.Base(p), args...)
+	c.Env = os.Environ()
 	c.Stdin = os.Stdin
 	c.Stdout = outWriter
 	c.Stderr = errWriter
 	c.Run()
 }
 
-func createOrOpenFile(d string) (*os.File, error) {
+func createOrOpenFile(d string, overwrite bool) (*os.File, error) {
 	err := os.MkdirAll(filepath.Dir(d), 0o750)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	f, err := os.OpenFile(d, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0o644)
+	var f *os.File
+	if overwrite {
+		f, err = os.OpenFile(d, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0o644)
+	} else {
+		f, err = os.OpenFile(d, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	}
+
 	if err != nil {
 		var pe *os.PathError
 		if errors.As(err, &pe) {
@@ -313,7 +322,7 @@ func prepareWriters(args []string) (outWriter, errWriter io.Writer, newArgs []st
 
 		switch a {
 		case ">", "1>":
-			outFile, err = createOrOpenFile(args[i+1])
+			outFile, err = createOrOpenFile(args[i+1], true)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("failed to prepare writers: %w", err)
 			}
@@ -322,11 +331,19 @@ func prepareWriters(args []string) (outWriter, errWriter io.Writer, newArgs []st
 			redir = true
 
 		case "2>":
-			errFile, err = createOrOpenFile(args[i+1])
+			errFile, err = createOrOpenFile(args[i+1], true)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("failed to prepare writers: %w", err)
 			}
 			redirectErr = true
+			redirIdx = i
+			redir = true
+		case ">>", "1>>":
+			outFile, err = createOrOpenFile(args[i+1], false)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to prepare writers: %w", err)
+			}
+			redirectOut = true
 			redirIdx = i
 			redir = true
 		}
@@ -351,12 +368,14 @@ func prepareWriters(args []string) (outWriter, errWriter io.Writer, newArgs []st
 	return outWriter, errWriter, newArgs, nil
 }
 
-func closeWriters(outWriter, errWriter io.Writer) {
+func closeOrResetWriters(outWriter, errWriter io.Writer) {
 	if f, ok := outWriter.(*os.File); ok {
 		if f != nil && f != os.Stdout {
 			if err := f.Close(); err != nil {
 				fmt.Printf("failed to close %s\n", f.Name())
 			}
+		} else if f == os.Stdout {
+			outWriter = os.Stdout
 		}
 	}
 
@@ -365,6 +384,8 @@ func closeWriters(outWriter, errWriter io.Writer) {
 			if err := f.Close(); err != nil {
 				fmt.Printf("failed to close %s\n", f.Name())
 			}
+		} else if f == os.Stderr {
+			errWriter = os.Stderr
 		}
 	}
 }
