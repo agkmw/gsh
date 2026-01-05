@@ -49,6 +49,23 @@ var completer = readline.NewPrefixCompleter(
 const HISTFILE = "/tmp/gosh.tmp"
 
 func main() {
+	paths := strings.Split(os.Getenv("PATH"), ":")
+	for _, p := range paths {
+		entries, err := os.ReadDir(p)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			info, err := os.Stat(path.Join(p, e.Name()))
+			if err != nil {
+				continue
+			}
+			if info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+				completer.SetChildren(append(completer.GetChildren(), readline.PcItem(e.Name())))
+			}
+		}
+	}
+
 	bellCompleter := BellCompleter{
 		completer: completer,
 		out:       os.Stdout,
