@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
@@ -12,6 +11,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/chzyer/readline"
 )
 
 const (
@@ -22,19 +23,43 @@ const (
 	CD   = "cd"
 )
 
-var builtins = []string{EXIT, ECHO, TYPE, PWD}
+var builtins = []string{EXIT, ECHO, TYPE, PWD, CD}
+
+var completer = readline.NewPrefixCompleter(
+	readline.PcItem(EXIT),
+	readline.PcItem(ECHO),
+	readline.PcItem(TYPE),
+	readline.PcItem(PWD),
+	readline.PcItem(CD),
+)
+
+const HISTFILE = "/tmp/gosh.tmp"
 
 func main() {
-	for {
-		fmt.Print("$ ")
+	l, err := readline.NewEx(&readline.Config{
+		Prompt:          "$ ",
+		InterruptPrompt: "^C",
+		EOFPrompt:       "exit",
+		AutoComplete:    completer,
+		HistoryFile:     HISTFILE,
+		HistoryLimit:    1000,
+	})
+	if err != nil {
+		panic(err)
+	}
+	defer l.Close()
 
-		r := bufio.NewReader(os.Stdin)
-		input, err := r.ReadString('\n')
-		if err != nil {
-			fmt.Println("failed to read input: ", err)
+	l.CaptureExitSignal()
+
+	for {
+		line, err := l.Readline()
+		if err == readline.ErrInterrupt {
+			continue
+		} else if err == io.EOF {
+			break
 		}
 
-		args := parseInput(input)
+		args := parseInput(line)
 
 		if len(args) < 1 {
 			continue
