@@ -25,6 +25,19 @@ const (
 
 var builtins = []string{EXIT, ECHO, TYPE, PWD, CD}
 
+type BellCompleter struct {
+	completer readline.AutoCompleter
+	out       io.Writer
+}
+
+func (c *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
+	nline, ln := c.completer.Do(line, pos)
+	if len(nline) == 0 {
+		c.out.Write([]byte("\x07"))
+	}
+	return nline, ln
+}
+
 var completer = readline.NewPrefixCompleter(
 	readline.PcItem(EXIT),
 	readline.PcItem(ECHO),
@@ -36,11 +49,16 @@ var completer = readline.NewPrefixCompleter(
 const HISTFILE = "/tmp/gosh.tmp"
 
 func main() {
+	bellCompleter := BellCompleter{
+		completer: completer,
+		out:       os.Stdout,
+	}
+
 	l, err := readline.NewEx(&readline.Config{
 		Prompt:          "$ ",
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
-		AutoComplete:    completer,
+		AutoComplete:    &bellCompleter,
 		HistoryFile:     HISTFILE,
 		HistoryLimit:    1000,
 	})
