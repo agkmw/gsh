@@ -346,6 +346,14 @@ func prepareWriters(args []string) (outWriter, errWriter io.Writer, newArgs []st
 			redirectOut = true
 			redirIdx = i
 			redir = true
+		case "2>>":
+			errFile, err = createOrOpenFile(args[i+1], false)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to prepare writers: %w", err)
+			}
+			redirectErr = true
+			redirIdx = i
+			redir = true
 		}
 	}
 
