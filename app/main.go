@@ -28,14 +28,20 @@ var builtins = []string{EXIT, ECHO, TYPE, PWD, CD}
 type BellCompleter struct {
 	completer readline.AutoCompleter
 	out       io.Writer
+	count     int
 }
 
 func (c *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
-	nline, ln := c.completer.Do(line, pos)
-	if len(nline) == 0 {
+	newLine, length = c.completer.Do(line, pos)
+	if len(newLine) == 0 {
+		c.count++
+		if c.count == 2 {
+			newLine, length = c.completer.Do(line, len(line))
+			c.count = 0
+		}
 		c.out.Write([]byte("\x07"))
 	}
-	return nline, ln
+	return newLine, length
 }
 
 var completer = readline.NewPrefixCompleter(
