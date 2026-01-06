@@ -30,10 +30,18 @@ type BellCompleter struct {
 	out       io.Writer
 	rl        *readline.Instance
 	lastTab   bool
+	lastLine  string
 }
 
 func (c *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
 	newLine, length = c.completer.Do(line, pos)
+
+	var suggestions []string
+	for _, word := range newLine {
+		s := string(line) + strings.TrimSpace(string(word))
+		suggestions = append(suggestions, s)
+	}
+	slices.Sort(suggestions)
 
 	// no matches
 	if len(newLine) == 0 {
@@ -52,19 +60,26 @@ func (c *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 	// first tab
 	if !c.lastTab {
 		c.out.Write([]byte("\x07"))
+		if c.lastLine != string(line) {
+			prefix := newLine[0]
+			for _, word := range newLine {
+				for !strings.HasPrefix(string(word), string(prefix)) {
+					prefix = prefix[:len(prefix)-1]
+				}
+			}
+			if len(prefix) == 0 {
+				goto nocommonprefix
+			}
+			return [][]rune{prefix}, 0
+		}
+		nocommonprefix:
 		c.lastTab = true
+		c.rl.Refresh()
 		return nil, 0
 	}
 
-	var suggestions []string
-	for _, word := range newLine {
-		s := string(line) + string(word)
-		suggestions = append(suggestions, s)
-	}
-	slices.Sort(suggestions)
-
 	fmt.Println()
-	fmt.Println(strings.Join(suggestions, " "))
+	fmt.Println(strings.Join(suggestions, "  "))
 
 	c.lastTab = false
 	c.rl.Refresh()
