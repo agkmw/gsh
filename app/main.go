@@ -28,20 +28,47 @@ var builtins = []string{EXIT, ECHO, TYPE, PWD, CD}
 type BellCompleter struct {
 	completer readline.AutoCompleter
 	out       io.Writer
-	count     int
+	rl        *readline.Instance
+	lastTab   bool
 }
 
 func (c *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
 	newLine, length = c.completer.Do(line, pos)
+
+	// no matches
 	if len(newLine) == 0 {
-		c.count++
-		if c.count == 2 {
-			newLine, length = c.completer.Do(line, len(line))
-			c.count = 0
-		}
 		c.out.Write([]byte("\x07"))
+		c.lastTab = false
+		return nil, 0
 	}
-	return newLine, length
+
+	// single match
+	if len(newLine) == 1 {
+		c.lastTab = false
+		return newLine, length
+	}
+
+	// multiple matches
+	// first tab
+	if !c.lastTab {
+		c.out.Write([]byte("\x07"))
+		c.lastTab = true
+		return nil, 0
+	}
+
+	var suggestions []string
+	for _, word := range newLine {
+		s := string(line) + string(word)
+		suggestions = append(suggestions, s)
+	}
+	slices.Sort(suggestions)
+
+	fmt.Println()
+	fmt.Println(strings.Join(suggestions, " "))
+
+	c.lastTab = false
+	c.rl.Refresh()
+	return nil, 0
 }
 
 var completer = readline.NewPrefixCompleter(
@@ -55,6 +82,10 @@ var completer = readline.NewPrefixCompleter(
 const HISTFILE = "/tmp/gosh.tmp"
 
 func main() {
+	seen := make(map[string]bool)
+	for _, b := range builtins {
+		seen[b] = true
+	}
 	paths := strings.Split(os.Getenv("PATH"), ":")
 	for _, p := range paths {
 		entries, err := os.ReadDir(p)
@@ -62,11 +93,15 @@ func main() {
 			continue
 		}
 		for _, e := range entries {
+			if _, ok := seen[e.Name()]; ok {
+				continue
+			}
 			info, err := os.Stat(path.Join(p, e.Name()))
 			if err != nil {
 				continue
 			}
 			if info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+				seen[e.Name()] = true
 				completer.SetChildren(append(completer.GetChildren(), readline.PcItem(e.Name())))
 			}
 		}
@@ -77,20 +112,24 @@ func main() {
 		out:       os.Stdout,
 	}
 
-	l, err := readline.NewEx(&readline.Config{
+	cfg := readline.Config{
 		Prompt:          "$ ",
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
 		AutoComplete:    &bellCompleter,
 		HistoryFile:     HISTFILE,
 		HistoryLimit:    1000,
-	})
+	}
+
+	l, err := readline.NewEx(&cfg)
 	if err != nil {
 		panic(err)
 	}
 	defer l.Close()
 
 	l.CaptureExitSignal()
+
+	bellCompleter.rl = l
 
 	for {
 		line, err := l.Readline()
