@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/chzyer/readline"
 )
@@ -72,7 +73,7 @@ func (c *BellCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 			}
 			return [][]rune{prefix}, 0
 		}
-		nocommonprefix:
+	nocommonprefix:
 		c.lastTab = true
 		c.rl.Refresh()
 		return nil, 0
@@ -95,6 +96,13 @@ var completer = readline.NewPrefixCompleter(
 )
 
 const HISTFILE = "/tmp/gosh.tmp"
+
+type Proc struct {
+	In  *os.File
+	Out *os.File
+	Err *os.File
+	Cmd []string // this is a combination of cmd and its args;
+}
 
 func main() {
 	seen := make(map[string]bool)
@@ -154,41 +162,22 @@ func main() {
 			break
 		}
 
-		args := parseInput(line)
-
-		if len(args) < 1 {
+		parsedInput := parseInput(line)
+		if len(parsedInput) < 1 {
 			continue
 		}
 
-		cmd := args[0]
-		if len(args) >= 2 {
-			args = args[1:]
-		} else {
-			args = []string{}
+		singleCmd := true
+		if slices.Contains(parsedInput, "|") {
+			singleCmd = false
 		}
 
-		outWriter, errWriter, args, err := prepareWriters(args)
-		if err != nil {
-			fmt.Println("failed to prepare writers: ", err)
+		if singleCmd {
+			handleProc(parsedInput)
 			continue
 		}
 
-		switch cmd {
-		case EXIT:
-			return
-		case ECHO:
-			echo(outWriter, args)
-		case TYPE:
-			typcmd(outWriter, errWriter, args)
-		case PWD:
-			pwd(outWriter, errWriter)
-		case CD:
-			cd(errWriter, args)
-		default:
-			external(outWriter, errWriter, cmd, args)
-		}
-
-		closeOrResetWriters(outWriter, errWriter)
+		handleMultipleProcs(parsedInput)
 	}
 }
 
@@ -315,7 +304,7 @@ func cd(errout io.Writer, args []string) {
 	}
 }
 
-func external(outWriter, errWriter io.Writer, cmd string, args []string) {
+func external(inReader *os.File, outWriter, errWriter io.Writer, cmd string, args []string) {
 	p, found := searchInPATH(cmd)
 	if !found {
 		fmt.Fprintf(errWriter, "%s: command not found\n", cmd)
@@ -324,10 +313,11 @@ func external(outWriter, errWriter io.Writer, cmd string, args []string) {
 
 	c := exec.Command(path.Base(p), args...)
 	c.Env = os.Environ()
-	c.Stdin = os.Stdin
+	c.Stdin = inReader
 	c.Stdout = outWriter
 	c.Stderr = errWriter
-	c.Run()
+	c.Start()
+	c.Wait()
 }
 
 func createOrOpenFile(d string, overwrite bool) (*os.File, error) {
@@ -516,4 +506,113 @@ func closeOrResetWriters(outWriter, errWriter io.Writer) {
 			errWriter = os.Stderr
 		}
 	}
+}
+
+func handleMultipleProcs(parsedInput []string) {
+	cmds := make([][]string, 0)
+	previousIndex := 0
+	for i, item := range parsedInput {
+		if item == "|" {
+			proc := parsedInput[previousIndex:i]
+			previousIndex = i + 1
+			cmds = append(cmds, proc)
+		}
+	}
+
+	cmds = append(cmds, parsedInput[previousIndex:])
+
+	procs := make([]Proc, 0)
+	var pipeErr error
+	var readerForNextProc *os.File
+	for i, item := range cmds {
+		var in, out, errOut *os.File
+		in = readerForNextProc
+		if i == 0 {
+			in = os.Stdin
+			r, w, err := os.Pipe()
+			pipeErr = err
+			readerForNextProc = r
+			out = w
+			errOut = w
+		} else if len(cmds)-1 == i {
+			out = os.Stdout
+			errOut = os.Stderr
+		} else {
+			r, w, err := os.Pipe()
+			pipeErr = err
+			readerForNextProc = r
+			out = w
+			errOut = w
+		}
+
+		proc := Proc{
+			Cmd: item,
+			In:  in,
+			Out: out,
+			Err: errOut,
+		}
+
+		procs = append(procs, proc)
+	}
+
+	if pipeErr != nil {
+		fmt.Println(pipeErr)
+		return
+	}
+
+	var wg sync.WaitGroup
+	for _, proc := range procs {
+		wg.Add(1)
+		go func(proc Proc) {
+			defer wg.Done()
+			cmd := proc.Cmd[0]
+			if len(proc.Cmd) >= 2 {
+				proc.Cmd = proc.Cmd[1:]
+			} else {
+				proc.Cmd = []string{}
+			}
+			external(proc.In, proc.Out, proc.Err, cmd, proc.Cmd)
+			if proc.Out != os.Stdout {
+				proc.Out.Close()
+			}
+
+			if proc.Err != os.Stderr {
+				proc.Err.Close()
+			}
+		}(proc)
+	}
+	wg.Wait()
+}
+
+func handleProc(parsedInput []string) {
+	cmd := parsedInput[0]
+	if len(parsedInput) >= 2 {
+		parsedInput = parsedInput[1:]
+	} else {
+		parsedInput = []string{}
+	}
+
+	outWriter, errWriter, parsedInput, err := prepareWriters(parsedInput)
+	if err != nil {
+		fmt.Println("failed to prepare writers: ", err)
+		return
+	}
+
+	switch cmd {
+	case EXIT:
+		os.Exit(0)
+		// return
+	case ECHO:
+		echo(outWriter, parsedInput)
+	case TYPE:
+		typcmd(outWriter, errWriter, parsedInput)
+	case PWD:
+		pwd(outWriter, errWriter)
+	case CD:
+		cd(errWriter, parsedInput)
+	default:
+		external(os.Stdin, outWriter, errWriter, cmd, parsedInput)
+	}
+
+	closeOrResetWriters(outWriter, errWriter)
 }
