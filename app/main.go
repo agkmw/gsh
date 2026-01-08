@@ -416,7 +416,11 @@ func parseInput(input string) []string {
 	return args
 }
 
-func prepareWriters(args []string) (outWriter, errWriter io.Writer, newArgs []string, err error) {
+func prepareWriters(
+	defaultOutWriter,
+	defaultErrWriter *os.File,
+	args []string,
+) (outWriter, errWriter io.Writer, newArgs []string, err error) {
 	var errFile *os.File
 	var outFile *os.File
 
@@ -473,12 +477,12 @@ func prepareWriters(args []string) (outWriter, errWriter io.Writer, newArgs []st
 		newArgs = args[:]
 	}
 
-	outWriter = os.Stdout
+	outWriter = defaultOutWriter
 	if redirectOut {
 		outWriter = outFile
 	}
 
-	errWriter = os.Stderr
+	errWriter = defaultErrWriter
 	if redirectErr {
 		errWriter = errFile
 	}
@@ -561,7 +565,7 @@ func handleMultipleProcs(parsedInput []string) {
 	}
 
 	var wg sync.WaitGroup
-	for _, proc := range procs {
+	for i, proc := range procs {
 		wg.Add(1)
 		go func(proc Proc) {
 			defer wg.Done()
@@ -571,7 +575,49 @@ func handleMultipleProcs(parsedInput []string) {
 			} else {
 				proc.Cmd = []string{}
 			}
-			external(proc.In, proc.Out, proc.Err, cmd, proc.Cmd)
+
+			// these are redirected writers; so piped writer must be copied from these
+			outWriter, errWriter, parsedInput, err := prepareWriters(proc.Out, proc.Err, proc.Cmd)
+			if err != nil {
+				fmt.Println("failed to prepare writers: ", err)
+				return
+			}
+
+			switch cmd {
+			case EXIT:
+				if i == len(procs)-1 {
+					os.Exit(0)
+				}
+				return
+				// return
+			case ECHO:
+				echo(outWriter, parsedInput)
+			case TYPE:
+				typcmd(outWriter, errWriter, parsedInput)
+			case PWD:
+				pwd(outWriter, errWriter)
+			case CD:
+				cd(errWriter, parsedInput)
+			default:
+				external(proc.In, outWriter, errWriter, cmd, parsedInput)
+			}
+
+			if outWriter != proc.Out {
+				fmt.Println("out yes")
+				if f, ok := outWriter.(*os.File); ok {
+					f.WriteTo(proc.Out)
+					f.Close()
+				}
+			}
+
+			if errWriter != proc.Err {
+				fmt.Println("err yes")
+				if f, ok := errWriter.(*os.File); ok {
+					f.WriteTo(proc.Err)
+					f.Close()
+				}
+			}
+
 			if proc.Out != os.Stdout {
 				proc.Out.Close()
 			}
@@ -592,11 +638,15 @@ func handleProc(parsedInput []string) {
 		parsedInput = []string{}
 	}
 
-	outWriter, errWriter, parsedInput, err := prepareWriters(parsedInput)
+	outWriter, errWriter, parsedInput, err := prepareWriters(os.Stdout, os.Stderr, parsedInput)
 	if err != nil {
 		fmt.Println("failed to prepare writers: ", err)
 		return
 	}
+
+	// when redirection is involved during piping
+	// commands should write to the redirected writers first
+	// then copy the redirected writers to the piped writer
 
 	switch cmd {
 	case EXIT:
