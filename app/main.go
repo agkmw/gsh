@@ -17,14 +17,19 @@ import (
 )
 
 const (
-	EXIT = "exit"
-	ECHO = "echo"
-	TYPE = "type"
-	PWD  = "pwd"
-	CD   = "cd"
+	EXIT    = "exit"
+	ECHO    = "echo"
+	TYPE    = "type"
+	PWD     = "pwd"
+	CD      = "cd"
+	HISTORY = "history"
 )
 
-var builtins = []string{EXIT, ECHO, TYPE, PWD, CD}
+var builtins = []string{EXIT, ECHO, TYPE, PWD, CD, HISTORY}
+
+var hist = NewHistory()
+
+const HISTFILE = "/tmp/gosh.hist.txt"
 
 type BellCompleter struct {
 	completer readline.AutoCompleter
@@ -93,9 +98,8 @@ var completer = readline.NewPrefixCompleter(
 	readline.PcItem(TYPE),
 	readline.PcItem(PWD),
 	readline.PcItem(CD),
+	readline.PcItem(HISTORY),
 )
-
-const HISTFILE = "/tmp/gosh.tmp"
 
 type Proc struct {
 	In  *os.File
@@ -140,8 +144,6 @@ func main() {
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
 		AutoComplete:    &bellCompleter,
-		HistoryFile:     HISTFILE,
-		HistoryLimit:    1000,
 	}
 
 	l, err := readline.NewEx(&cfg)
@@ -154,6 +156,9 @@ func main() {
 
 	bellCompleter.rl = l
 
+	hist := NewHistory()
+	defer hist.Close()
+
 	for {
 		line, err := l.Readline()
 		if err == readline.ErrInterrupt {
@@ -161,6 +166,8 @@ func main() {
 		} else if err == io.EOF {
 			break
 		}
+
+		hist.Write(os.Stderr, line)
 
 		parsedInput := parseInput(line)
 		if len(parsedInput) < 1 {
@@ -598,6 +605,8 @@ func handleMultipleProcs(parsedInput []string) {
 				pwd(outWriter, errWriter)
 			case CD:
 				cd(errWriter, parsedInput)
+			case HISTORY:
+				history(outWriter, errWriter)
 			default:
 				external(proc.In, outWriter, errWriter, cmd, parsedInput)
 			}
@@ -644,10 +653,6 @@ func handleProc(parsedInput []string) {
 		return
 	}
 
-	// when redirection is involved during piping
-	// commands should write to the redirected writers first
-	// then copy the redirected writers to the piped writer
-
 	switch cmd {
 	case EXIT:
 		os.Exit(0)
@@ -660,9 +665,88 @@ func handleProc(parsedInput []string) {
 		pwd(outWriter, errWriter)
 	case CD:
 		cd(errWriter, parsedInput)
+	case HISTORY:
+		history(outWriter, errWriter)
 	default:
 		external(os.Stdin, outWriter, errWriter, cmd, parsedInput)
 	}
 
 	closeOrResetWriters(outWriter, errWriter)
+}
+
+type History struct {
+	f  *os.File
+	mu *sync.RWMutex
+}
+
+func NewHistory() *History {
+	f := sync.OnceValue(func() *History {
+		histFile, err := getOrCreateHistFile()
+		if err != nil {
+			panic(err)
+		}
+
+		hist := History{
+			f:  histFile,
+			mu: &sync.RWMutex{},
+		}
+
+		return &hist
+	})
+
+	return f()
+}
+
+func (h *History) Close() {
+	h.f.Close()
+}
+
+func (h *History) Write(errOut io.Writer, cmd string) {
+	h.mu.Lock()
+	{
+		_, err := h.f.WriteString(cmd + "\n")
+		if err != nil {
+			errOut.Write([]byte(err.Error()))
+		}
+	}
+
+	h.mu.Unlock()
+}
+
+func history(out, errOut io.Writer) {
+	hist := NewHistory()
+	hist.Read(out, errOut)
+}
+
+func (h *History) Read(out, errOut io.Writer) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	{
+		b, err := io.ReadAll(h.f)
+		if err != nil {
+			fmt.Fprintln(errOut, err)
+			return
+		}
+		fmt.Println(string(b))
+		lines := strings.Split(string(b), "\n")
+		for i, line := range lines {
+			if line == "" {
+				continue
+			}
+			fmt.Fprintf(out, "%d %s\n", i+1, line)
+		}
+	}
+}
+
+func getOrCreateHistFile() (*os.File, error) {
+	if err := os.MkdirAll(path.Dir(HISTFILE), 0o750); err != nil {
+		return nil, err
+	}
+
+	f, err := os.OpenFile(HISTFILE, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, err
+	}
+
+	return f, nil
 }
