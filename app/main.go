@@ -727,13 +727,12 @@ func (h *History) Read(out, errOut io.Writer) {
 			fmt.Fprintln(errOut, err)
 			return
 		}
-		fmt.Println(string(b))
 		lines := strings.Split(string(b), "\n")
 		for i, line := range lines {
 			if line == "" {
 				continue
 			}
-			fmt.Fprintf(out, "%d %s\n", i+1, line)
+			fmt.Fprintf(out, "    %d %s\n", i+1, line)
 		}
 	}
 }
