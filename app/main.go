@@ -721,11 +721,22 @@ func history(out, errOut io.Writer, args []string, hist *History) {
 		return
 	}
 
+	if args[0] == "-a" {
+		if len(args) != 2 {
+			fmt.Fprintln(errOut, "history: usage: -a <path_to_history_file>")
+			return
+		}
+
+		hist.AppendToHistFile(errOut, args[1])
+		return
+	}
+
 	c, err := strconv.ParseInt(args[0], 10, 64)
 	if err != nil {
 		fmt.Fprintf(errOut, "history: invalid argument")
 		return
 	}
+
 	target := int(c)
 	start := len(lines) - target
 
@@ -739,11 +750,12 @@ func history(out, errOut io.Writer, args []string, hist *History) {
 }
 
 type History struct {
-	f       *os.File
-	mu      *sync.RWMutex
-	mh      []string // in-memory store
-	offset  int
-	currCmd string // this is current command that hasn't been entered yet
+	f             *os.File
+	mu            *sync.RWMutex
+	mh            []string // in-memory store
+	offset        int
+	currCmd       string // this is current command that hasn't been entered yet
+	unwrittenCmds []string
 }
 
 func NewHistory() *History {
@@ -807,11 +819,26 @@ func (h *History) WriteToHistFile(errOut io.Writer, name string) {
 	}
 }
 
+func (h *History) AppendToHistFile(errOut io.Writer, name string) {
+	f, err := openOrCreateHistFile(name)
+	if err != nil {
+		fmt.Fprintln(errOut, "failed to open or create history file to append: ", err)
+		return
+	}
+
+	for _, line := range h.unwrittenCmds {
+		f.WriteString(line + "\n")
+	}
+
+	h.unwrittenCmds = make([]string, 0)
+}
+
 func (h *History) Write(errOut io.Writer, cmd string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	h.mh = append(h.mh, cmd)
+	h.unwrittenCmds = append(h.unwrittenCmds, cmd)
 
 	if h.f != nil {
 		_, err := h.f.WriteString(cmd + "\n")
