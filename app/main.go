@@ -707,7 +707,17 @@ func history(out, errOut io.Writer, args []string, hist *History) {
 			return
 		}
 
-		hist.FromHistFile(errOut, args[1])
+		hist.ReadFromHistFile(errOut, args[1])
+		return
+	}
+
+	if args[0] == "-w" {
+		if len(args) != 2 {
+			fmt.Fprintln(errOut, "history: usage: -w <path_to_history_file>")
+			return
+		}
+
+		hist.WriteToHistFile(errOut, args[1])
 		return
 	}
 
@@ -747,15 +757,15 @@ func NewHistory() *History {
 	return &hist
 }
 
-func (h *History) FromHistFile(errOut io.Writer, name string) {
-	f, err := getOrCreateHistFile(name)
+func (h *History) ReadFromHistFile(errOut io.Writer, name string) {
+	f, err := openOrCreateHistFile(name)
 	if err != nil {
 		fmt.Fprintf(errOut, "failed to read from history from %s", name)
 		return
 	}
 
 	h.f = f
-	h.Sync()
+	h.Sync(errOut)
 }
 
 func (h *History) Close() {
@@ -766,13 +776,14 @@ func (h *History) Close() {
 	}
 }
 
-func (h *History) Sync() {
+func (h *History) Sync(errOut io.Writer) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	b, err := io.ReadAll(h.f)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprintln(errOut, "failed to sync history: ", err)
+		return
 	}
 
 	lines := strings.Split(string(b), "\n")
@@ -781,6 +792,18 @@ func (h *History) Sync() {
 			continue
 		}
 		h.mh = append(h.mh, string(line))
+	}
+}
+
+func (h *History) WriteToHistFile(errOut io.Writer, name string) {
+	f, err := openOrCreateHistFile(name)
+	if err != nil {
+		fmt.Fprintln(errOut, "failed to open or create history file to write: ", err)
+		return
+	}
+
+	for _, line := range h.mh {
+		f.WriteString(line + "\n")
 	}
 }
 
@@ -837,7 +860,7 @@ func (h *History) NextCmd() string {
 	return s
 }
 
-func getOrCreateHistFile(name string) (*os.File, error) {
+func openOrCreateHistFile(name string) (*os.File, error) {
 	if err := os.MkdirAll(path.Dir(name), 0o750); err != nil {
 		return nil, err
 	}
