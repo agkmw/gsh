@@ -106,7 +106,10 @@ type Proc struct {
 }
 
 func main() {
-	hist := NewHistory()
+	hist, err := NewHistory()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+	}
 	defer hist.Close()
 
 	seen := make(map[string]bool)
@@ -758,15 +761,25 @@ type History struct {
 	unwrittenCmds []string
 }
 
-func NewHistory() *History {
+func NewHistory() (*History, error) {
 	hist := History{
-		f:      nil,
 		mu:     &sync.RWMutex{},
 		offset: 1, // len(slice) - offset
 		mh:     make([]string, 0),
 	}
 
-	return &hist
+	s := os.Getenv("HISTFILE")
+	if s != "" {
+		histFile, err := openOrCreateHistFile(s)
+		if err != nil {
+			return nil, fmt.Errorf("unable to load history file: %w", err)
+		}
+
+		hist.f = histFile
+		hist.Sync(os.Stderr)
+	}
+
+	return &hist, nil
 }
 
 func (h *History) ReadFromHistFile(errOut io.Writer, name string) {
