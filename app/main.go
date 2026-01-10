@@ -795,17 +795,15 @@ func (h *History) PrevCmd() string {
 		return ""
 	}
 
-	if h.offset == 0 {
-		h.offset = 1
+	if h.offset == 0 || len(h.mh)-h.offset < 0 {
+		h.offset = 0
+		return ""
 	} else {
-		h.offset++
 	}
 
-	if len(h.mh)-h.offset < 0 {
-		h.offset = 1
-	}
-
-	return h.mh[len(h.mh)-h.offset]
+	s := h.mh[len(h.mh)-h.offset]
+	h.offset++
+	return s
 }
 
 func (h *History) NextCmd() string {
