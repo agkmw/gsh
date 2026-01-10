@@ -798,7 +798,6 @@ func (h *History) PrevCmd() string {
 	if h.offset == 0 || len(h.mh)-h.offset < 0 {
 		h.offset = 0
 		return ""
-	} else {
 	}
 
 	s := h.mh[len(h.mh)-h.offset]
@@ -811,14 +810,17 @@ func (h *History) NextCmd() string {
 		return ""
 	}
 
-	h.offset--
-
 	if h.offset == 0 || len(h.mh)-h.offset < 0 {
-		h.offset = 1
+		h.offset = 0
 		return h.currCmd
 	}
 
-	return h.mh[len(h.mh)-h.offset]
+	// we should decrement the offset 2 times cuz in PrevCmd we increment 
+	// the offset ahead after getting the cmd
+	h.offset--
+	h.offset--
+	s := h.mh[len(h.mh)-h.offset]
+	return s
 }
 
 func getOrCreateHistFile() (*os.File, error) {
