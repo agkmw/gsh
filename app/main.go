@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -26,8 +27,6 @@ const (
 )
 
 var builtins = []string{EXIT, ECHO, TYPE, PWD, CD, HISTORY}
-
-var hist = NewHistory()
 
 const HISTFILE = "/tmp/gosh.hist.txt"
 
@@ -109,6 +108,10 @@ type Proc struct {
 }
 
 func main() {
+	os.Remove(HISTFILE)
+	hist := NewHistory()
+	defer hist.Close()
+
 	seen := make(map[string]bool)
 	for _, b := range builtins {
 		seen[b] = true
@@ -156,8 +159,21 @@ func main() {
 
 	bellCompleter.rl = l
 
-	hist := NewHistory()
-	defer hist.Close()
+	l.Config.FuncFilterInputRune = func(r rune) (rune, bool) {
+		switch r {
+		// p = 16; Ctrl+p moves up;
+		case 16:
+			l.Operation.SetBuffer(hist.PrevCmd())
+			return 0, false
+		// n = 14; Ctrl+n moves down;
+		case 14:
+			l.Operation.SetBuffer(hist.NextCmd())
+			return 0, false
+		default:
+			hist.currCmd += string(r)
+		}
+		return r, true
+	}
 
 	for {
 		line, err := l.Readline()
@@ -185,6 +201,9 @@ func main() {
 		}
 
 		handleMultipleProcs(parsedInput)
+
+		// reset history pointer
+		hist.offset = 1
 	}
 }
 
@@ -606,13 +625,12 @@ func handleMultipleProcs(parsedInput []string) {
 			case CD:
 				cd(errWriter, parsedInput)
 			case HISTORY:
-				history(outWriter, errWriter)
+				history(outWriter, errWriter, parsedInput)
 			default:
 				external(proc.In, outWriter, errWriter, cmd, parsedInput)
 			}
 
 			if outWriter != proc.Out {
-				fmt.Println("out yes")
 				if f, ok := outWriter.(*os.File); ok {
 					f.WriteTo(proc.Out)
 					f.Close()
@@ -620,7 +638,6 @@ func handleMultipleProcs(parsedInput []string) {
 			}
 
 			if errWriter != proc.Err {
-				fmt.Println("err yes")
 				if f, ok := errWriter.(*os.File); ok {
 					f.WriteTo(proc.Err)
 					f.Close()
@@ -666,7 +683,7 @@ func handleProc(parsedInput []string) {
 	case CD:
 		cd(errWriter, parsedInput)
 	case HISTORY:
-		history(outWriter, errWriter)
+		history(outWriter, errWriter, parsedInput)
 	default:
 		external(os.Stdin, outWriter, errWriter, cmd, parsedInput)
 	}
@@ -674,9 +691,43 @@ func handleProc(parsedInput []string) {
 	closeOrResetWriters(outWriter, errWriter)
 }
 
+func history(out, errOut io.Writer, args []string) {
+	hist := NewHistory()
+	lines := hist.Read()
+
+	if len(args) != 0 {
+		c, err := strconv.ParseInt(args[0], 10, 64)
+		if err != nil {
+			fmt.Fprintf(errOut, "history: invalid argument")
+			return
+		}
+		target := int(c)
+		start := len(lines) - 1 - target
+
+		for i := start; i < len(lines); i++ {
+			line := lines[i]
+			if line == "" {
+				continue
+			}
+			fmt.Fprintf(out, "    %d  %s\n", i+1, line)
+		}
+		return
+	}
+
+	for i, line := range lines {
+		if line == "" {
+			continue
+		}
+		fmt.Fprintf(out, "    %d  %s\n", i+1, line)
+	}
+}
+
 type History struct {
-	f  *os.File
-	mu *sync.RWMutex
+	f       *os.File
+	mu      *sync.RWMutex
+	mh      []string // in-memory store
+	offset  int
+	currCmd string // this is current command that hasn't been entered yet
 }
 
 func NewHistory() *History {
@@ -687,9 +738,13 @@ func NewHistory() *History {
 		}
 
 		hist := History{
-			f:  histFile,
-			mu: &sync.RWMutex{},
+			f:      histFile,
+			mu:     &sync.RWMutex{},
+			offset: 1, // len(slice) - offset
+			mh:     make([]string, 0),
 		}
+
+		hist.Sync()
 
 		return &hist
 	})
@@ -701,9 +756,25 @@ func (h *History) Close() {
 	h.f.Close()
 }
 
+func (h *History) Sync() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	b, err := io.ReadAll(h.f)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	h.mh = make([]string, 0)
+	lines := strings.Split(string(b), "\n")
+	for _, line := range lines {
+		h.mh = append(h.mh, string(line))
+	}
+}
+
 func (h *History) Write(errOut io.Writer, cmd string) {
 	h.mu.Lock()
 	{
+		h.mh = append(h.mh, cmd)
 		_, err := h.f.WriteString(cmd + "\n")
 		if err != nil {
 			errOut.Write([]byte(err.Error()))
@@ -713,28 +784,43 @@ func (h *History) Write(errOut io.Writer, cmd string) {
 	h.mu.Unlock()
 }
 
-func history(out, errOut io.Writer) {
-	hist := NewHistory()
-	hist.Read(out, errOut)
-}
-
-func (h *History) Read(out, errOut io.Writer) {
+func (h *History) Read() []string {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	{
-		b, err := io.ReadAll(h.f)
-		if err != nil {
-			fmt.Fprintln(errOut, err)
-			return
-		}
-		lines := strings.Split(string(b), "\n")
-		for i, line := range lines {
-			if line == "" {
-				continue
-			}
-			fmt.Fprintf(out, "    %d %s\n", i+1, line)
-		}
+	return h.mh
+}
+
+func (h *History) PrevCmd() string {
+	if len(h.mh) == 0 {
+		return ""
 	}
+
+	if h.offset == 0 {
+		h.offset = 1
+	} else {
+		h.offset++
+	}
+
+	if len(h.mh)-h.offset < 0 {
+		h.offset = 1
+	}
+
+	return h.mh[len(h.mh)-h.offset]
+}
+
+func (h *History) NextCmd() string {
+	if len(h.mh) == 0 {
+		return ""
+	}
+
+	h.offset--
+
+	if h.offset == 0 || len(h.mh)-h.offset < 0 {
+		h.offset = 1
+		return h.currCmd
+	}
+
+	return h.mh[len(h.mh)-h.offset]
 }
 
 func getOrCreateHistFile() (*os.File, error) {
@@ -742,7 +828,7 @@ func getOrCreateHistFile() (*os.File, error) {
 		return nil, err
 	}
 
-	f, err := os.OpenFile(HISTFILE, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0o644)
+	f, err := os.OpenFile(HISTFILE, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, err
 	}
