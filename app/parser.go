@@ -45,9 +45,11 @@ func tokenizeInput(input string) []string {
 			}
 
 		case ' ':
-			if !inSingleQuote && !inDoubleQuote && tokenBuffer.Len() > 0 {
-				tokens = append(tokens, tokenBuffer.String())
-				tokenBuffer.Reset()
+			if !inSingleQuote && !inDoubleQuote {
+				if tokenBuffer.Len() > 0 {
+					tokens = append(tokens, tokenBuffer.String())
+					tokenBuffer.Reset()
+				}
 			} else {
 				tokenBuffer.WriteByte(c)
 			}
@@ -69,4 +71,3 @@ func tokenizeInput(input string) []string {
 
 	return tokens
 }
-
