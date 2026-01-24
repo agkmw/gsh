@@ -69,12 +69,3 @@ func (c *BellAutoCompleter) Do(line []rune, pos int) (newLine [][]rune, length i
 	c.inputReader.Refresh()
 	return nil, 0
 }
-
-var completer = readline.NewPrefixCompleter(
-	readline.PcItem(EXIT),
-	readline.PcItem(ECHO),
-	readline.PcItem(TYPE),
-	readline.PcItem(PWD),
-	readline.PcItem(CD),
-	readline.PcItem(HISTORY),
-)

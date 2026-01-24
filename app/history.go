@@ -1,14 +1,16 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 )
 
-type HistoryStore struct {
+type historyStore struct {
 	file           *os.File
 	mutex          *sync.RWMutex
 	inmemoryStore  []string // in-memory store
@@ -17,8 +19,8 @@ type HistoryStore struct {
 	pendingEntries []string
 }
 
-func NewHistoryStore() (*HistoryStore, error) {
-	historyStore := HistoryStore{
+func newHistoryStore() (*historyStore, error) {
+	historyStore := historyStore{
 		mutex:         &sync.RWMutex{},
 		cursor:        1, // len(slice) - offset
 		inmemoryStore: make([]string, 0),
@@ -32,24 +34,13 @@ func NewHistoryStore() (*HistoryStore, error) {
 		}
 
 		historyStore.file = histFile
-		historyStore.LoadFromFile(os.Stderr)
+		historyStore.loadFromFile(os.Stderr)
 	}
 
 	return &historyStore, nil
 }
 
-func (h *HistoryStore) LoadFromPath(stderr io.Writer, name string) {
-	f, err := openHistoryFile(name)
-	if err != nil {
-		fmt.Fprintf(stderr, "failed to read from history from %s", name)
-		return
-	}
-
-	h.file = f
-	h.LoadFromFile(stderr)
-}
-
-func (h *HistoryStore) Close() {
+func (h *historyStore) close() {
 	if h.file != nil {
 		if err := h.file.Close(); err != nil {
 			fmt.Fprintln(os.Stderr, "failed to close history file: ", err)
@@ -57,7 +48,7 @@ func (h *HistoryStore) Close() {
 	}
 }
 
-func (h *HistoryStore) LoadFromFile(errOut io.Writer) {
+func (h *historyStore) loadFromFile(errOut io.Writer) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
@@ -76,7 +67,18 @@ func (h *HistoryStore) LoadFromFile(errOut io.Writer) {
 	}
 }
 
-func (h *HistoryStore) WriteToPath(errOut io.Writer, name string) {
+func (h *historyStore) loadFromPath(stderr io.Writer, name string) {
+	f, err := openHistoryFile(name)
+	if err != nil {
+		fmt.Fprintf(stderr, "failed to read from history from %s", name)
+		return
+	}
+
+	h.file = f
+	h.loadFromFile(stderr)
+}
+
+func (h *historyStore) writeToPath(errOut io.Writer, name string) {
 	f, err := openHistoryFile(name)
 	if err != nil {
 		fmt.Fprintln(errOut, "failed to open or create history file to write: ", err)
@@ -88,7 +90,7 @@ func (h *HistoryStore) WriteToPath(errOut io.Writer, name string) {
 	}
 }
 
-func (h *HistoryStore) AppendToPath(stderr io.Writer, name string) {
+func (h *historyStore) appendToPath(stderr io.Writer, name string) {
 	f, err := openHistoryFile(name)
 	if err != nil {
 		fmt.Fprintln(stderr, "failed to open or create history file to append: ", err)
@@ -102,7 +104,7 @@ func (h *HistoryStore) AppendToPath(stderr io.Writer, name string) {
 	h.pendingEntries = make([]string, 0)
 }
 
-func (h *HistoryStore) Append(errOut io.Writer, cmd string) {
+func (h *historyStore) append(errOut io.Writer, cmd string) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
@@ -117,13 +119,13 @@ func (h *HistoryStore) Append(errOut io.Writer, cmd string) {
 	}
 }
 
-func (h *HistoryStore) Entries() []string {
+func (h *historyStore) entries() []string {
 	h.mutex.RLock()
 	defer h.mutex.RUnlock()
 	return h.inmemoryStore
 }
 
-func (h *HistoryStore) Previous() string {
+func (h *historyStore) previous() string {
 	if len(h.inmemoryStore) == 0 {
 		return ""
 	}
@@ -138,7 +140,7 @@ func (h *HistoryStore) Previous() string {
 	return s
 }
 
-func (h *HistoryStore) Next() string {
+func (h *historyStore) next() string {
 	if len(h.inmemoryStore) == 0 {
 		return ""
 	}
@@ -154,4 +156,22 @@ func (h *HistoryStore) Next() string {
 	h.cursor--
 	s := h.inmemoryStore[len(h.inmemoryStore)-h.cursor]
 	return s
+}
+
+func openHistoryFile(name string) (*os.File, error) {
+	err := os.MkdirAll(filepath.Dir(name), 0o750)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	f, err := os.OpenFile(name, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0o644)
+	if err != nil {
+		var pe *os.PathError
+		if errors.As(err, &pe) {
+			return nil, fmt.Errorf("failed to open or create file: %s\n", pe.Path)
+		}
+		return nil, err
+	}
+
+	return f, nil
 }
