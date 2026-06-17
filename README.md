@@ -1,34 +1,44 @@
-[![progress-banner](https://backend.codecrafters.io/progress/shell/863a63d5-2329-4744-a500-492d29203926)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
+# gsh — A Minimal POSIX-Like Shell in Go
 
-This is a starting point for Go solutions to the
-["Build Your Own Shell" Challenge](https://app.codecrafters.io/courses/shell/overview).
+[![CodeCrafters Challenge](https://img.shields.io/badge/CodeCrafters-Build%20Your%20Own%20Shell-blue)](https://codecrafters.io)
 
-In this challenge, you'll build your own POSIX compliant shell that's capable of
-interpreting shell commands, running external programs and builtin commands like
-cd, pwd, echo and more. Along the way, you'll learn about shell command parsing,
-REPLs, builtin commands, and more.
+gsh is a lightweight, functional shell built in Go as a learning project. It implements a Read-Eval-Print Loop (REPL) with command history, tab completion, I/O redirection, and Unix pipelines.
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+## Features
 
-# Passing the first stage
+- **Built-in commands**: `cd`, `exit`, `echo`, `pwd`, `type`, `history`
+- **I/O redirection**: `>`, `>>`, `1>`, `1>>`, `2>`, `2>>`
+- **Unix pipelines**: `cmd1 | cmd2 | cmd3`
+- **Tab completion**: Auto-completes commands from `$PATH` and built-ins
+- **History navigation**: Ctrl+P (previous) / Ctrl+N (next)
+- **Signal handling**: Ctrl+C (interrupt), Ctrl+D (EOF exit)
+- **Persistent history**: File-backed via `$HISTFILE` environment variable
+- **Quoting**: Single-quote (literal), double-quote (limited escapes), backslash escaping
 
-The entry point for your `shell` implementation is in `app/main.go`. Study and
-uncomment the relevant code, and push your changes to pass the first stage:
+## Project Structure
+
+app/
+├── main.go        — REPL loop: read, tokenize, dispatch
+├── reader.go      — readline setup, history key bindings, tab completion
+├── parser.go      — quote-aware tokenizer (single-pass byte state machine)
+├── runner.go      — command dispatch, pipeline construction & orchestration
+├── executor.go    — external binary execution and $PATH lookup
+├── builtins.go    — built-in command implementations (cd, exit, echo, etc.)
+├── redirection.go — I/O redirection parsing and file descriptor setup
+├── history.go     — in-memory history ring with file persistence
+└── completer.go   — tab completions with bell feedback on no/multiple matches
+
+## Quick Start
 
 ```sh
-git commit -am "pass 1st stage" # any msg
-git push origin master
+go build -o gsh ./app
+./gsh
 ```
+Set a custom history file:
 
-Time to move on to the next stage!
+`HISTFILE=~/.gsh_history ./gsh`
 
-# Stage 2 & beyond
-
-Note: This section is for stages 2 and beyond.
-
-1. Ensure you have `go (1.25)` installed locally
-1. Run `./your_program.sh` to run your program, which is implemented in
-   `app/main.go`.
-1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
+Limitations
+- No job control: Child processes inherit the shell's process group. Ctrl+C can terminate the shell itself.
+> Basic signal trapping is implemented, but due to lack of job control, signals may propagate improperly to the parent shell process group. This will be fixed in future updates.
+- Simple pipe synchronisation: Pipeline segments run concurrently in goroutines with no explicit ordering guarantees.
