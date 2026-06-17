@@ -17,6 +17,7 @@ gsh is a lightweight, functional shell built in Go as a learning project. It imp
 
 ## Project Structure
 
+```text
 app/
 ├── main.go        — REPL loop: read, tokenize, dispatch
 ├── reader.go      — readline setup, history key bindings, tab completion
@@ -27,6 +28,7 @@ app/
 ├── redirection.go — I/O redirection parsing and file descriptor setup
 ├── history.go     — in-memory history ring with file persistence
 └── completer.go   — tab completions with bell feedback on no/multiple matches
+```
 
 ## Quick Start
 
