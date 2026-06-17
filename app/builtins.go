@@ -11,15 +11,15 @@ import (
 )
 
 const (
-	EXIT    = "exit"
-	ECHO    = "echo"
-	TYPE    = "type"
-	PWD     = "pwd"
-	CD      = "cd"
-	HISTORY = "history"
+	exitCmd    = "exit"
+	echoCmd    = "echo"
+	typeCmd    = "type"
+	pwdCmd     = "pwd"
+	cdCmd      = "cd"
+	historyCmd = "history"
 )
 
-var builtins = []string{EXIT, ECHO, TYPE, PWD, CD, HISTORY}
+var builtins = []string{exitCmd, echoCmd, typeCmd, pwdCmd, cdCmd, historyCmd}
 
 func echoCommand(stdout io.Writer, args []string) {
 	var buf bytes.Buffer
@@ -63,7 +63,13 @@ func cdCommand(stderr io.Writer, args []string) {
 		return
 	}
 
-	dest := args[0]
+	var dest string
+	if len(args) == 0 {
+		dest = os.Getenv("HOME")
+	} else {
+		dest = args[0]
+	}
+
 	if dest == "~" {
 		dest = os.Getenv("HOME")
 	}
@@ -80,7 +86,7 @@ func cdCommand(stderr io.Writer, args []string) {
 }
 
 func historyCommand(out, errOut io.Writer, args []string, historyStore *historyStore) {
-	entries := historyStore.entries()
+	entries := historyStore.getEntries()
 
 	if len(args) == 0 {
 		for i, entry := range entries {

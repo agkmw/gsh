@@ -13,8 +13,8 @@ import (
 type historyStore struct {
 	file           *os.File
 	mutex          *sync.RWMutex
-	inmemoryStore  []string // in-memory store
-	cursor         int
+	entries        []string // in-memory store
+	reverseOffset  int
 	currentInput   string // this is current command that hasn't been entered yet
 	pendingEntries []string
 }
@@ -22,8 +22,8 @@ type historyStore struct {
 func newHistoryStore() (*historyStore, error) {
 	historyStore := historyStore{
 		mutex:         &sync.RWMutex{},
-		cursor:        1, // len(slice) - offset
-		inmemoryStore: make([]string, 0),
+		reverseOffset: 1, // len(slice) - offset
+		entries:       make([]string, 0),
 	}
 
 	s := os.Getenv("HISTFILE")
@@ -63,7 +63,7 @@ func (h *historyStore) loadFromFile(errOut io.Writer) {
 		if line == "" {
 			continue
 		}
-		h.inmemoryStore = append(h.inmemoryStore, string(line))
+		h.entries = append(h.entries, string(line))
 	}
 }
 
@@ -85,7 +85,7 @@ func (h *historyStore) writeToPath(errOut io.Writer, name string) {
 		return
 	}
 
-	for _, line := range h.inmemoryStore {
+	for _, line := range h.entries {
 		f.WriteString(line + "\n")
 	}
 }
@@ -108,7 +108,7 @@ func (h *historyStore) append(errOut io.Writer, cmd string) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
-	h.inmemoryStore = append(h.inmemoryStore, cmd)
+	h.entries = append(h.entries, cmd)
 	h.pendingEntries = append(h.pendingEntries, cmd)
 
 	if h.file != nil {
@@ -119,42 +119,42 @@ func (h *historyStore) append(errOut io.Writer, cmd string) {
 	}
 }
 
-func (h *historyStore) entries() []string {
+func (h *historyStore) getEntries() []string {
 	h.mutex.RLock()
 	defer h.mutex.RUnlock()
-	return h.inmemoryStore
+	return h.entries
 }
 
 func (h *historyStore) previous() string {
-	if len(h.inmemoryStore) == 0 {
+	if len(h.entries) == 0 {
 		return ""
 	}
 
-	if h.cursor == 0 || len(h.inmemoryStore)-h.cursor < 0 {
-		h.cursor = 0
+	if h.reverseOffset == 0 || len(h.entries)-h.reverseOffset < 0 {
+		h.reverseOffset = 0
 		return ""
 	}
 
-	s := h.inmemoryStore[len(h.inmemoryStore)-h.cursor]
-	h.cursor++
+	s := h.entries[len(h.entries)-h.reverseOffset]
+	h.reverseOffset++
 	return s
 }
 
 func (h *historyStore) next() string {
-	if len(h.inmemoryStore) == 0 {
+	if len(h.entries) == 0 {
 		return ""
 	}
 
-	if h.cursor == 0 || len(h.inmemoryStore)-h.cursor < 0 {
-		h.cursor = 0
+	if h.reverseOffset == 0 || len(h.entries)-h.reverseOffset < 0 {
+		h.reverseOffset = 0
 		return h.currentInput
 	}
 
 	// we should decrement the offset 2 times cuz in PrevCmd we increment
 	// the offset ahead after getting the cmd
-	h.cursor--
-	h.cursor--
-	s := h.inmemoryStore[len(h.inmemoryStore)-h.cursor]
+	h.reverseOffset--
+	h.reverseOffset--
+	s := h.entries[len(h.entries)-h.reverseOffset]
 	return s
 }
 

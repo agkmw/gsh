@@ -14,7 +14,9 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 	}
-	defer historyStore.close()
+	if historyStore != nil {
+		defer historyStore.close()
+	}
 
 	reader := startInputReader(historyStore)
 	defer reader.Close()
@@ -46,6 +48,6 @@ func main() {
 		}
 
 		// reset history pointer
-		historyStore.cursor = 1
+		historyStore.reverseOffset = 1
 	}
 }

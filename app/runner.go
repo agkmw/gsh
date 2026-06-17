@@ -7,10 +7,10 @@ import (
 )
 
 type process struct {
-	stdin  *os.File
-	stdout *os.File
-	stderr *os.File
-	args   []string // this is a combination of cmd and its args;
+	stdin      *os.File
+	stdout     *os.File
+	stderr     *os.File
+	cmdAndArgs []string // this is a combination of cmd and its args;
 }
 
 func splitPipeline(input []string) [][]string {
@@ -33,7 +33,6 @@ func splitPipeline(input []string) [][]string {
 func buildPipeline(commands [][]string) []process {
 	processes := make([]process, 0)
 
-	var pipeErr error
 	var nextStdin *os.File
 
 	for i, segment := range commands {
@@ -48,31 +47,29 @@ func buildPipeline(commands [][]string) []process {
 				stdin = os.Stdin
 			}
 			r, w, err := os.Pipe()
-			pipeErr = err
+			if err != nil {
+				fmt.Println(err)
+				return nil
+			}
 			nextStdin = r
 			stdout = w
 			stderr = w
 		}
 
 		process := process{
-			args:   segment,
-			stdin:  stdin,
-			stdout: stdout,
-			stderr: stderr,
+			cmdAndArgs: segment,
+			stdin:      stdin,
+			stdout:     stdout,
+			stderr:     stderr,
 		}
 
 		processes = append(processes, process)
 	}
 
-	if pipeErr != nil {
-		fmt.Println(pipeErr)
-		return nil
-	}
-
 	return processes
 }
 
-func runPipeline(tokens []string, hist *historyStore) {
+func runPipeline(tokens []string, historyStore *historyStore) {
 	commandGroups := splitPipeline(tokens)
 
 	processes := buildPipeline(commandGroups)
@@ -82,36 +79,36 @@ func runPipeline(tokens []string, hist *historyStore) {
 		wg.Add(1)
 		go func(proc process) {
 			defer wg.Done()
-			cmd := proc.args[0]
-			if len(proc.args) >= 2 {
-				proc.args = proc.args[1:]
+			cmd := proc.cmdAndArgs[0]
+			if len(proc.cmdAndArgs) >= 2 {
+				proc.cmdAndArgs = proc.cmdAndArgs[1:]
 			} else {
-				proc.args = []string{}
+				proc.cmdAndArgs = []string{}
 			}
 
 			// these are redirected writers; so piped writer must be copied from these
-			stdout, stderr, commandArgs, err := setupRedirection(proc.stdout, proc.stderr, proc.args)
+			stdout, stderr, commandArgs, err := setupRedirection(proc.stdout, proc.stderr, proc.cmdAndArgs)
 			if err != nil {
 				fmt.Println("failed to prepare writers: ", err)
 				return
 			}
 
 			switch cmd {
-			case EXIT:
+			case exitCmd:
 				if i == len(processes)-1 {
 					os.Exit(0)
 				}
 				return
-			case ECHO:
+			case echoCmd:
 				echoCommand(stdout, commandArgs)
-			case TYPE:
+			case typeCmd:
 				typeCommand(stdout, stderr, commandArgs)
-			case PWD:
+			case pwdCmd:
 				pwdCommand(stdout, stderr)
-			case CD:
+			case cdCmd:
 				cdCommand(stderr, commandArgs)
-			case HISTORY:
-				historyCommand(stdout, stderr, commandArgs, hist)
+			case historyCmd:
+				historyCommand(stdout, stderr, commandArgs, historyStore)
 			default:
 				runExternalCommand(proc.stdin, stdout, stderr, cmd, commandArgs)
 			}
@@ -157,17 +154,17 @@ func runSingleCommand(tokens []string, historyStore *historyStore) {
 	}
 
 	switch command {
-	case EXIT:
+	case exitCmd:
 		os.Exit(0)
-	case ECHO:
+	case echoCmd:
 		echoCommand(stdout, commandArgs)
-	case TYPE:
+	case typeCmd:
 		typeCommand(stdout, stderr, commandArgs)
-	case PWD:
+	case pwdCmd:
 		pwdCommand(stdout, stderr)
-	case CD:
+	case cdCmd:
 		cdCommand(stderr, commandArgs)
-	case HISTORY:
+	case historyCmd:
 		historyCommand(stdout, stderr, commandArgs, historyStore)
 	default:
 		runExternalCommand(os.Stdin, stdout, stderr, command, commandArgs)

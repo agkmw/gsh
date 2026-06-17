@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 )
 
+type parserError error
+
 func setupRedirection(
 	defaultStdout,
 	defaultStderr *os.File,
@@ -28,7 +30,10 @@ func setupRedirection(
 
 		switch a {
 		case ">", "1>":
-			stdoutFile, err = openRedirectionFile(tokens[i+1], true)
+			if i+1 >= len(tokens) {
+				return nil, nil, nil, fmt.Errorf("parser error near %s", a)
+			}
+			stdoutFile, err = openRedirectionFile(tokens[i+1], modeTruncate)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("failed to prepare writers: %w", err)
 			}
@@ -37,7 +42,10 @@ func setupRedirection(
 			hasRedirection = true
 
 		case "2>":
-			stderrFile, err = openRedirectionFile(tokens[i+1], true)
+			if i+1 >= len(tokens) {
+				return nil, nil, nil, fmt.Errorf("parser error near %s", a)
+			}
+			stderrFile, err = openRedirectionFile(tokens[i+1], modeTruncate)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("failed to prepare writers: %w", err)
 			}
@@ -45,7 +53,10 @@ func setupRedirection(
 			redirectionIndex = i
 			hasRedirection = true
 		case ">>", "1>>":
-			stdoutFile, err = openRedirectionFile(tokens[i+1], false)
+			if i+1 >= len(tokens) {
+				return nil, nil, nil, fmt.Errorf("parser error near %s", a)
+			}
+			stdoutFile, err = openRedirectionFile(tokens[i+1], modeAppend)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("failed to prepare writers: %w", err)
 			}
@@ -53,7 +64,10 @@ func setupRedirection(
 			redirectionIndex = i
 			hasRedirection = true
 		case "2>>":
-			stderrFile, err = openRedirectionFile(tokens[i+1], false)
+			if i+1 >= len(tokens) {
+				return nil, nil, nil, fmt.Errorf("parser error near %s", a)
+			}
+			stderrFile, err = openRedirectionFile(tokens[i+1], modeAppend)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("failed to prepare writers: %w", err)
 			}
@@ -88,8 +102,6 @@ func closeRedirection(stdout, stderr io.Writer) {
 			if err := f.Close(); err != nil {
 				fmt.Printf("failed to close %s\n", f.Name())
 			}
-		} else if f == os.Stdout {
-			stdout = os.Stdout
 		}
 	}
 
@@ -98,22 +110,28 @@ func closeRedirection(stdout, stderr io.Writer) {
 			if err := f.Close(); err != nil {
 				fmt.Printf("failed to close %s\n", f.Name())
 			}
-		} else if f == os.Stderr {
-			stderr = os.Stderr
 		}
 	}
 }
 
-func openRedirectionFile(name string, overwrite bool) (*os.File, error) {
+type writeMode int
+
+const (
+	modeTruncate writeMode = 1
+	modeAppend   writeMode = 2
+)
+
+func openRedirectionFile(name string, mode writeMode) (*os.File, error) {
 	err := os.MkdirAll(filepath.Dir(name), 0o750)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create directory: %w", err)
 	}
 
 	var f *os.File
-	if overwrite {
+	switch mode {
+	case modeTruncate:
 		f, err = os.OpenFile(name, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0o644)
-	} else {
+	case modeAppend:
 		f, err = os.OpenFile(name, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	}
 

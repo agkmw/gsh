@@ -13,7 +13,7 @@ type BellAutoCompleter struct {
 	prefixCompleter   readline.AutoCompleter
 	stdout            io.Writer
 	inputReader       *readline.Instance
-	awaitingSecondTab bool
+	pendingListDisplay bool
 	previousLine      string
 }
 
@@ -30,19 +30,19 @@ func (c *BellAutoCompleter) Do(line []rune, pos int) (newLine [][]rune, length i
 	// no matches
 	if len(newLine) == 0 {
 		c.stdout.Write([]byte("\x07"))
-		c.awaitingSecondTab = false
+		c.pendingListDisplay = false
 		return nil, 0
 	}
 
 	// single match
 	if len(newLine) == 1 {
-		c.awaitingSecondTab = false
+		c.pendingListDisplay = false
 		return newLine, length
 	}
 
 	// multiple matches
 	// first tab
-	if !c.awaitingSecondTab {
+	if !c.pendingListDisplay {
 		c.stdout.Write([]byte("\x07"))
 		if c.previousLine != string(line) {
 			prefix := newLine[0]
@@ -52,12 +52,14 @@ func (c *BellAutoCompleter) Do(line []rune, pos int) (newLine [][]rune, length i
 				}
 			}
 			if len(prefix) == 0 {
-				goto nocommonprefix
+				c.pendingListDisplay = true
+				c.inputReader.Refresh()
+				return nil, 0
 			}
 			return [][]rune{prefix}, 0
 		}
-	nocommonprefix:
-		c.awaitingSecondTab = true
+		c.pendingListDisplay = true
+		c.previousLine = string(line)
 		c.inputReader.Refresh()
 		return nil, 0
 	}
@@ -65,7 +67,7 @@ func (c *BellAutoCompleter) Do(line []rune, pos int) (newLine [][]rune, length i
 	fmt.Println()
 	fmt.Println(strings.Join(suggestions, "  "))
 
-	c.awaitingSecondTab = false
+	c.pendingListDisplay = false
 	c.inputReader.Refresh()
 	return nil, 0
 }

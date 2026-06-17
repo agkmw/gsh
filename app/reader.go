@@ -10,17 +10,17 @@ import (
 
 func startInputReader(historyStore *historyStore) *readline.Instance {
 	completer := readline.NewPrefixCompleter(
-		readline.PcItem(EXIT),
-		readline.PcItem(ECHO),
-		readline.PcItem(TYPE),
-		readline.PcItem(PWD),
-		readline.PcItem(CD),
-		readline.PcItem(HISTORY),
+		readline.PcItem(exitCmd),
+		readline.PcItem(echoCmd),
+		readline.PcItem(typeCmd),
+		readline.PcItem(pwdCmd),
+		readline.PcItem(cdCmd),
+		readline.PcItem(historyCmd),
 	)
 
-	knownCommands := make(map[string]bool)
+	knownCommands := make(map[string]struct{})
 	for _, b := range builtins {
-		knownCommands[b] = true
+		knownCommands[b] = struct{}{}
 	}
 
 	pathDirs := strings.Split(os.Getenv("PATH"), ":")
@@ -38,7 +38,7 @@ func startInputReader(historyStore *historyStore) *readline.Instance {
 				continue
 			}
 			if info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
-				knownCommands[e.Name()] = true
+				knownCommands[e.Name()] = struct{}{}
 				completer.SetChildren(append(completer.GetChildren(), readline.PcItem(e.Name())))
 			}
 		}
